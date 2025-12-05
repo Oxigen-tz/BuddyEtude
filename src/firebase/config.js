@@ -9,8 +9,8 @@ const firebaseConfig = {
   projectId: "buddyetude",
   storageBucket: "buddyetude.firebasestorage.app",
   messagingSenderId: "499725521618",
-  appId: "1:499725521618:web:e4be390098951a909d130b"
-  measurementId: "G-NV45DCH23X"
+  appId: "1:499725521618:web:e4be390098951a909d130b",
+  measurementId: "G-NV45DCH23X",
 };
 
 const app = initializeApp(firebaseConfig);
