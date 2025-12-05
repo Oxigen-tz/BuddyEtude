@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://buddyetude.vercel.app/sitemap.xml
