@@ -1,3 +1,9 @@
 User-agent: *
 Allow: /
+# Exclusion des pages qui nécessitent une connexion
+Disallow: /dashboard
+Disallow: /profile
+Disallow: /login
+Disallow: /call/
+
 Sitemap: https://buddyetude.vercel.app/sitemap.xml
