@@ -5,15 +5,17 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "npm run --silent prebuild && vite build",
+    "prebuild": "chmod +x node_modules/.bin/vite",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview"
   },
   "dependencies": {
-    "firebase": "^9.x.x", 
+    "firebase": "^10.x.x",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.22.0"
+    "react-router-dom": "^6.22.0",
+    "simple-peer": "^9.11.1"
   },
   "devDependencies": {
     "@types/react": "^18.2.55",
