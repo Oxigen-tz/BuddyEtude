@@ -15,6 +15,7 @@ import Profile from "./pages/Profile";
 import FindBuddy from "./pages/FindBuddy";
 import Login from "./pages/Login";
 import VideoCall from "./pages/VideoCall";
+import Chat from "./pages/Chat";
 
 // =======================================================================
 // COMPOSANT DE PROTECTION DE ROUTE (PrivateRoute) - Définition conservée ici
