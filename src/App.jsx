@@ -60,6 +60,7 @@ const App = () => {
           <Route path="/dashboard" element={<PrivateRoute element={Dashboard} />} />
           <Route path="/profile" element={<PrivateRoute element={Profile} />} />
           <Route path="/call/:callId" element={<PrivateRoute element={VideoCall} />} /> 
+          <Route path="/chat/:groupId" element={<PrivateRoute element={Chat} />} />
 
           {/* -------------------- Route de repli -------------------- */}
           <Route path="*" element={<div className="text-center p-20 text-xl font-semibold text-red-500">Erreur 404 - Page introuvable</div>} />
