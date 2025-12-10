@@ -1,65 +1,65 @@
-import { createContext, useContext, useState, useEffect } from "react";
-// NOTE: S'assurer que 'auth' est correctement exporté dans firebase/config.js
+import React, { createContext, useContext, useState, useEffect } from "react";
+import { 
+    onAuthStateChanged, 
+    signInWithPopup, 
+    GoogleAuthProvider, 
+    signOut 
+} from "firebase/auth";
 import { auth } from "../firebase/config"; 
-import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from "firebase/auth";
+// 🟢 NOUVEL IMPORT : La fonction pour créer le profil Firestore
+import { syncUserProfile } from "../firebase/services"; 
 
+// Crée le Contexte
 const AuthContext = createContext();
 
+// Hook personnalisé pour l'utilisation du contexte
 export const useAuth = () => useContext(AuthContext);
 
+// Fournisseur de Contexte
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  // Ajout de l'état de chargement pour la vérification initiale de Firebase
-  const [loading, setLoading] = useState(true); 
+    const [user, setUser] = useState(null);
+    const [loading, setLoading] = useState(true); // État de chargement initial
 
-  useEffect(() => {
-    // onAuthStateChanged écoute les changements d'état d'auth
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setLoading(false); // L'état d'authentification est maintenant connu
-    });
-    
-    // Fonction de nettoyage: très bien conservée
-    return () => unsubscribe();
-  }, []);
+    // Écoute les changements d'état d'authentification (login, logout, refresh)
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+            setUser(currentUser);
+            setLoading(false); // L'état initial est connu
+        });
+        return unsubscribe; // Nettoyage lors du démontage
+    }, []);
 
-  const loginWithGoogle = async () => {
-    const provider = new GoogleAuthProvider();
-    try {
-      // Retourne le résultat pour permettre à Login.jsx de faire la redirection si succès
-      return await signInWithPopup(auth, provider);
-    } catch (error) {
-      console.error("Erreur de connexion Google:", error);
-      // Lancer à nouveau l'erreur pour la gestion côté UI
-      throw error; 
-    }
-  };
+    // Fonction de connexion Google
+    const loginWithGoogle = async () => {
+        const provider = new GoogleAuthProvider();
+        try {
+            const result = await signInWithPopup(auth, provider);
+            const user = result.user; 
+            
+            // 🟢 ÉTAPE CRUCIALE : Crée ou synchronise le document utilisateur dans Firestore
+            await syncUserProfile(user); 
 
-  const logout = async () => {
-    try {
-      await signOut(auth);
-    } catch (error) {
-      console.error("Erreur de déconnexion:", error);
-      throw error; 
-    }
-  };
+            // L'onAuthStateChanged ci-dessus mettra à jour l'état du contexte (setUser)
+            return result;
+        } catch (error) {
+            console.error("Erreur de connexion Google:", error);
+            throw error; 
+        }
+    };
 
-  // Valeurs fournies au reste de l'application
-  const value = {
-    user,
-    loginWithGoogle,
-    logout,
-    loading // Ajout de l'état de chargement
-  };
-  
-  // Option 1: Afficher un écran de chargement global tant que l'état d'auth n'est pas prêt
-  if (loading) {
-    return <div className="text-center p-20 text-lg">Préparation de l'application...</div>;
-  }
+    // Fonction de déconnexion
+    const logout = () => signOut(auth);
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+    const value = {
+        user,
+        loading,
+        loginWithGoogle,
+        logout
+    };
+
+    return (
+        <AuthContext.Provider value={value}>
+            {children}
+        </AuthContext.Provider>
+    );
 };

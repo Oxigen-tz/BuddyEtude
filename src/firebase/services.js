@@ -1,65 +1,86 @@
-import { auth, db } from "./config";
-import { collection, addDoc, getDocs, doc, getDoc, query, where } from "firebase/firestore"; 
-import { serverTimestamp } from "firebase/firestore"; 
+import { db } from "./config";
+import { 
+    collection, 
+    doc, 
+    getDocs, 
+    query, 
+    where, 
+    setDoc, 
+    serverTimestamp,
+    getDoc 
+} from "firebase/firestore";
+
+const USERS_COLLECTION = "users";
+const GROUPS_COLLECTION = "groups";
 
 // =======================================================================
-// FONCTIONS DE GESTION DES GROUPES
-// =======================================================================
-
-// Récupérer les groupes auxquels l'utilisateur appartient
-export const getGroups = async (userId) => {
-    // Si userId est fourni, on filtre par appartenance (suppose un champ 'members' de type array dans 'groups')
-    const groupsRef = collection(db, "groups");
-    
-    // NOTE: Ceci nécessite un autre index composite si vous utilisez ce filtre
-    let q = query(groupsRef, where("members", "array-contains", userId));
-
-    // Si pas de filtre, on récupère tout (attention à la scalabilité)
-    if (!userId) {
-      q = groupsRef; 
-    }
-    
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({ 
-        id: doc.id, 
-        ...doc.data() 
-    }));
-};
-
-// Ajouter un nouveau groupe (avec ID du créateur)
-export const addGroup = async (groupData) => {
-    if (!auth.currentUser) {
-        throw new Error("L'utilisateur doit être connecté pour créer un groupe.");
-    }
-    
-    const dataWithCreator = {
-        ...groupData,
-        creatorId: auth.currentUser.uid,
-        members: [auth.currentUser.uid], // Le créateur est le premier membre
-        createdAt: serverTimestamp()
-    };
-    
-    const docRef = await addDoc(collection(db, "groups"), dataWithCreator);
-    // Retourne l'ID pour la redirection vers la page du nouveau groupe
-    return docRef.id; 
-};
-
-// =======================================================================
-// FONCTION DE GESTION DU PROFIL
+// SERVICES UTILISATEUR
 // =======================================================================
 
 /**
- * Récupère le document complet du profil utilisateur depuis la collection 'users'.
- * @param {string} userId - L'UID de l'utilisateur
+ * Crée ou met à jour le profil utilisateur dans Firestore après une connexion réussie.
+ * Ceci est crucial pour garantir que le document users/{user.uid} existe.
  */
-export const getProfileData = async (userId) => {
-    const userRef = doc(db, "users", userId);
+export const syncUserProfile = async (user) => {
+    const userRef = doc(db, USERS_COLLECTION, user.uid);
     const docSnap = await getDoc(userRef);
 
+    if (!docSnap.exists()) {
+        // Crée le document utilisateur s'il n'existe pas (Premier Login)
+        await setDoc(userRef, {
+            name: user.displayName,
+            email: user.email,
+            photoURL: user.photoURL || null,
+            level: "Débutant", // Valeur par défaut
+            availability: "Flexible", // Valeur par défaut
+            skills: [],
+            wishlist: [],
+            createdAt: serverTimestamp()
+        }, { merge: true });
+    }
+    // Si le document existe, on ne fait rien pour ne pas écraser les données personnalisées.
+};
+
+/**
+ * Récupère le profil complet de l'utilisateur.
+ */
+export const getProfileData = async (userId) => {
+    const docRef = doc(db, USERS_COLLECTION, userId);
+    const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
         return { id: docSnap.id, ...docSnap.data() };
-    } else {
-        // Optionnel : Créer un document utilisateur initial s'il n'existe pas (inscription)
-        return null;
     }
+    return null;
 };
+
+/**
+ * Met à jour le profil utilisateur.
+ */
+export const updateProfileData = async (userId, data) => {
+    const userRef = doc(db, USERS_COLLECTION, userId);
+    await setDoc(userRef, data, { merge: true });
+};
+
+// =======================================================================
+// SERVICES GROUPES ET MATCHING
+// =======================================================================
+
+/**
+ * Récupère tous les groupes dont l'utilisateur est membre.
+ */
+export const getGroups = async (userId) => {
+    const groupsRef = collection(db, GROUPS_COLLECTION);
+    
+    // Requête pour filtrer les groupes où le tableau 'members' contient l'ID de l'utilisateur
+    // NOTE: Pour les tableaux de grande taille, ce type de requête peut être limité par Firestore.
+    const q = query(groupsRef, where("members", "array-contains", userId));
+
+    const querySnapshot = await getDocs(q);
+    const groups = [];
+    querySnapshot.forEach((doc) => {
+        groups.push({ id: doc.id, ...doc.data() });
+    });
+    return groups;
+};
+
+// ... (Ajoutez ici toutes les autres fonctions de services que vous avez)
