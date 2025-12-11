@@ -25,7 +25,7 @@ export const createCall = async (callerId, receiverId) => {
     const callDocRef = await addDoc(collection(db, CALLS_COLLECTION), {
         callerId,
         receiverId,
-        status: 'calling', // Statut initial
+        status: 'calling', 
         createdAt: serverTimestamp(),
     });
     return callDocRef.id;
@@ -50,7 +50,7 @@ export const deleteCall = async (callId) => {
     await deleteDoc(callDocRef);
 };
 
-// 🟢 EXPORT MANQUANT CORRIGÉ : Alias pour satisfaire l'importation dans VideoCall.jsx
+// 🟢 ALIAS MANQUANT pour les imports dans VideoCall.jsx
 export const endCall = deleteCall;
 
 
@@ -95,7 +95,7 @@ export const listenForSignals = (callId, onCallUpdate, onCandidate) => {
  */
 export const setCallOffer = async (callId, offer) => {
     const callDocRef = doc(db, CALLS_COLLECTION, callId);
-    await updateDoc(callDocRef, { offer: offer }); 
+    await updateDoc(callDocRef, { offer: offer });
 };
 
 /**
@@ -115,5 +115,5 @@ export const addCandidate = async (callId, candidate) => {
     await addDoc(candidatesRef, candidate);
 };
 
-// Alias sendSignal (si votre Chat.jsx l'importe)
+// 🟢 ALIAS MANQUANT pour les imports dans VideoCall.jsx
 export const sendSignal = addCandidate;

@@ -1,11 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom"; 
 import { useAuth } from "../context/AuthContext";
-// Fonctions de Chat
 import { sendMessage, subscribeToMessages } from "../firebase/chat";
-// Fonctions de Groupe et Profil
 import { getGroupData, getProfileData } from "../firebase/services"; 
-// Fonctions d'Appel
 import { createCall } from "../firebase/videocall"; 
 
 
@@ -19,7 +16,6 @@ const Chat = () => {
     const [loading, setLoading] = useState(true);
     const messagesEndRef = useRef(null); 
     
-    // Nouveaux états pour l'appel
     const [otherUserId, setOtherUserId] = useState(null); 
     const [otherUserName, setOtherUserName] = useState("Buddy"); 
 
@@ -29,25 +25,21 @@ const Chat = () => {
     useEffect(() => {
         if (!groupId || !user) return;
         
-        // --- PARTIE RECHERCHE PARTENAIRE ---
         const findOtherUser = async () => {
             try {
                 const groupData = await getGroupData(groupId);
                 
                 if (groupData && groupData.members && groupData.members.length > 1) {
                     
-                    // Trouver l'UID du partenaire qui n'est PAS l'utilisateur actuel
                     const partnerId = groupData.members.find(uid => uid !== user.uid);
                     
                     if (partnerId) {
                         setOtherUserId(partnerId);
                         
-                        // Tenter de récupérer le nom pour l'affichage
                         const partnerProfile = await getProfileData(partnerId);
                         if (partnerProfile && partnerProfile.name) {
                             setOtherUserName(partnerProfile.name);
                         } else {
-                            // Fallback : Utiliser l'UID si le profil n'est pas trouvé
                             setOtherUserName(`Partenaire: ${partnerId}`); 
                         }
                     } else {
@@ -60,7 +52,6 @@ const Chat = () => {
                 }
 
             } catch (error) {
-                // Erreur critique d'accès aux données du groupe (ex: Firestore down)
                 console.error("Erreur critique d'accès aux données du groupe:", error);
                 setOtherUserId(null);
                 setOtherUserName("Erreur d'accès aux données");
@@ -88,7 +79,7 @@ const Chat = () => {
 
 
     // =======================================================================
-    // 2. Fonction pour lancer l'appel
+    // 2. Fonction pour lancer l'appel (avec gestion d'erreur)
     // =======================================================================
     const handleStartCall = async () => {
         if (!otherUserId) {
@@ -102,10 +93,11 @@ const Chat = () => {
             
             // Redirige l'utilisateur vers la salle d'appel nouvellement créée
             navigate(`/call/${callId}`); 
-            console.log("Appel créé et navigation lancée avec ID:", callId);
+            console.log("SUCCESS: Redirection lancée avec l'ID:", callId);
         } catch (error) {
-            console.error("Erreur lors du lancement de l'appel:", error);
-            alert("Erreur lors du lancement de l'appel vidéo. Vérifiez les règles Firestore pour /calls.");
+            // 🛑 L'erreur Firebase devrait être capturée ici
+            console.error("ERREUR CRITIQUE Firebase:", error.message); 
+            alert("L'appel n'a pas pu être créé. Voir console F12 pour la cause (règles de sécurité ?).");
         }
     };
     
@@ -139,7 +131,6 @@ const Chat = () => {
                 <button
                     onClick={handleStartCall}
                     className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition duration-200 disabled:opacity-50"
-                    // Le bouton est activé si otherUserId est trouvé
                     disabled={!otherUserId} 
                 >
                     📞 Démarrer l'Appel Vidéo
