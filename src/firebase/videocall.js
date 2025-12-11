@@ -95,7 +95,7 @@ export const listenForSignals = (callId, onCallUpdate, onCandidate) => {
  */
 export const setCallOffer = async (callId, offer) => {
     const callDocRef = doc(db, CALLS_COLLECTION, callId);
-    await updateDoc(callDocRef, { offer: offer });
+    await updateDoc(callDocRef, { offer: offer }); 
 };
 
 /**
