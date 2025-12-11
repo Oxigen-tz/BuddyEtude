@@ -19,7 +19,6 @@ const GROUPS_COLLECTION = "groups";
 
 /**
  * Crée ou met à jour le profil utilisateur dans Firestore après une connexion réussie.
- * Ceci est crucial pour garantir que le document users/{user.uid} existe.
  */
 export const syncUserProfile = async (user) => {
     const userRef = doc(db, USERS_COLLECTION, user.uid);
@@ -31,14 +30,13 @@ export const syncUserProfile = async (user) => {
             name: user.displayName,
             email: user.email,
             photoURL: user.photoURL || null,
-            level: "Débutant", // Valeur par défaut
-            availability: "Flexible", // Valeur par défaut
+            level: "Débutant",
+            availability: "Flexible",
             skills: [],
             wishlist: [],
             createdAt: serverTimestamp()
         }, { merge: true });
     }
-    // Si le document existe, on ne fait rien pour ne pas écraser les données personnalisées.
 };
 
 /**
@@ -66,13 +64,25 @@ export const updateProfileData = async (userId, data) => {
 // =======================================================================
 
 /**
+ * Récupère les données d'un groupe spécifique par son ID.
+ * ESSENTIEL pour trouver l'UID du partenaire dans Chat.jsx.
+ */
+export const getGroupData = async (groupId) => {
+    const docRef = doc(db, GROUPS_COLLECTION, groupId);
+    const docSnap = await getDoc(docRef);
+    
+    if (docSnap.exists()) {
+        return { id: docSnap.id, ...docSnap.data() };
+    }
+    return null;
+};
+
+
+/**
  * Récupère tous les groupes dont l'utilisateur est membre.
  */
 export const getGroups = async (userId) => {
     const groupsRef = collection(db, GROUPS_COLLECTION);
-    
-    // Requête pour filtrer les groupes où le tableau 'members' contient l'ID de l'utilisateur
-    // NOTE: Pour les tableaux de grande taille, ce type de requête peut être limité par Firestore.
     const q = query(groupsRef, where("members", "array-contains", userId));
 
     const querySnapshot = await getDocs(q);
@@ -82,5 +92,3 @@ export const getGroups = async (userId) => {
     });
     return groups;
 };
-
-// ... (Ajoutez ici toutes les autres fonctions de services que vous avez)
