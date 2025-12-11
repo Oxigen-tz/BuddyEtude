@@ -3,9 +3,9 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 // Fonctions de Chat
 import { sendMessage, subscribeToMessages } from "../firebase/chat";
-// Fonctions de Groupe (nouveau)
+// Fonctions de Groupe et Profil
 import { getGroupData, getProfileData } from "../firebase/services"; 
-// Fonctions d'Appel (nouveau)
+// Fonctions d'Appel
 import { createCall } from "../firebase/videocall"; 
 
 
@@ -24,49 +24,53 @@ const Chat = () => {
     const [otherUserName, setOtherUserName] = useState("Buddy"); 
 
     // =======================================================================
-    // 0. Identifier le partenaire de chat (NÉCESSAIRE POUR L'APPEL)
+    // 1. Abonnement aux messages ET identification du partenaire
     // =======================================================================
     useEffect(() => {
         if (!groupId || !user) return;
         
+        // --- PARTIE RECHERCHE PARTENAIRE ---
         const findOtherUser = async () => {
             try {
-                // 1. Récupère les données du groupe pour obtenir la liste des membres
                 const groupData = await getGroupData(groupId);
-
+                
                 if (groupData && groupData.members && groupData.members.length > 1) {
                     
-                    // 2. Trouver l'UID du partenaire qui n'est PAS l'utilisateur actuel
+                    // Trouver l'UID du partenaire qui n'est PAS l'utilisateur actuel
                     const partnerId = groupData.members.find(uid => uid !== user.uid);
                     
                     if (partnerId) {
                         setOtherUserId(partnerId);
                         
-                        // 3. Récupérer le nom pour l'affichage
+                        // Tenter de récupérer le nom pour l'affichage
                         const partnerProfile = await getProfileData(partnerId);
-                        if (partnerProfile) {
+                        if (partnerProfile && partnerProfile.name) {
                             setOtherUserName(partnerProfile.name);
                         } else {
-                            setOtherUserName("Partenaire Inconnu");
+                            // Fallback : Utiliser l'UID si le profil n'est pas trouvé
+                            setOtherUserName(`Partenaire: ${partnerId}`); 
                         }
+                    } else {
+                        setOtherUserId(null);
+                        setOtherUserName("Aucun Autre Membre dans le Groupe");
                     }
                 } else {
-                    // Si le groupe n'existe pas ou s'il n'y a pas d'autre membre
                     setOtherUserId(null);
-                    setOtherUserName("Aucun Partenaire");
+                    setOtherUserName("Groupe Invalide ou Solitaire");
                 }
 
             } catch (error) {
-                console.error("Erreur lors de l'identification du partenaire:", error);
+                // Erreur critique d'accès aux données du groupe (ex: Firestore down)
+                console.error("Erreur critique d'accès aux données du groupe:", error);
                 setOtherUserId(null);
+                setOtherUserName("Erreur d'accès aux données");
             }
         };
 
         findOtherUser();
         
-        // --- LOGIQUE D'ABONNEMENT AU CHAT (Reste ici) ---
+        // --- PARTIE ABONNEMENT AU CHAT ---
         setLoading(true);
-        
         const unsubscribe = subscribeToMessages(groupId, (newMessages) => {
             setMessages(newMessages);
             setLoading(false);
@@ -84,11 +88,11 @@ const Chat = () => {
 
 
     // =======================================================================
-    // 3. Fonction pour lancer l'appel (NOUVEAU)
+    // 2. Fonction pour lancer l'appel
     // =======================================================================
     const handleStartCall = async () => {
         if (!otherUserId) {
-            alert("Impossible de trouver l'autre utilisateur pour l'appel.");
+            alert("Impossible de trouver l'autre utilisateur pour lancer l'appel.");
             return;
         }
 
@@ -98,6 +102,7 @@ const Chat = () => {
             
             // Redirige l'utilisateur vers la salle d'appel nouvellement créée
             navigate(`/call/${callId}`); 
+            console.log("Appel créé et navigation lancée avec ID:", callId);
         } catch (error) {
             console.error("Erreur lors du lancement de l'appel:", error);
             alert("Erreur lors du lancement de l'appel vidéo. Vérifiez les règles Firestore pour /calls.");
@@ -105,7 +110,7 @@ const Chat = () => {
     };
     
 
-    // Fonction d'envoi de message (Reste inchangée)
+    // 3. Fonction d'envoi de message
     const handleSendMessage = async (e) => {
         e.preventDefault();
         if (!newMessage.trim() || !user) return;
@@ -134,7 +139,8 @@ const Chat = () => {
                 <button
                     onClick={handleStartCall}
                     className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition duration-200 disabled:opacity-50"
-                    disabled={!otherUserId} // Désactivé si on ne connaît pas l'ID du partenaire
+                    // Le bouton est activé si otherUserId est trouvé
+                    disabled={!otherUserId} 
                 >
                     📞 Démarrer l'Appel Vidéo
                 </button>
@@ -142,7 +148,6 @@ const Chat = () => {
             
             {/* Zone d'affichage des messages */}
             <div className="flex-grow p-4 overflow-y-auto space-y-4 bg-gray-50">
-                {/* ... (logique d'affichage des messages) ... */}
                 {messages.map((msg, index) => (
                     <div 
                         key={msg.id || index} 
