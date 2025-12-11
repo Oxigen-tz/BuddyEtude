@@ -1,143 +1,76 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import { 
-    db, 
-    listenForSignals, 
-    setCallOffer, 
-    setCallAnswer, 
-    addCandidate,
-    endCall 
-} from '../firebase/videocall'; 
+import React from "react";
+import { Link } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
-// Serveurs STUN (Google)
-const servers = {
-    iceServers: [
-        { urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
-    ],
-    iceCandidatePoolSize: 10,
-};
+const Home = () => {
+  const { user } = useAuth();
 
-const VideoCall = () => {
-    const { callId } = useParams();
-    const navigate = useNavigate();
-    const { user } = useAuth();
-    
-    const [localStream, setLocalStream] = useState(null);
-    const [callStatus, setCallStatus] = useState("Initialisation...");
-    
-    const localVideoRef = useRef(null);
-    const remoteVideoRef = useRef(null);
-    const pc = useRef(new RTCPeerConnection(servers));
-
-    // 1. Initialisation Caméra
-    useEffect(() => {
-        const startWebcam = async () => {
-            try {
-                // Demande l'accès vidéo/audio
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-                setLocalStream(stream);
-                
-                // Attache le flux à la balise vidéo
-                if (localVideoRef.current) {
-                    localVideoRef.current.srcObject = stream;
-                }
-
-                // Ajoute les pistes à la connexion PeerConnection
-                stream.getTracks().forEach((track) => {
-                    pc.current.addTrack(track, stream);
-                });
-
-                setCallStatus("Caméra active. En attente de connexion...");
-            } catch (error) {
-                console.error("Erreur caméra:", error);
-                // 🛑 PAS DE REDIRECTION ICI, JUSTE UN MESSAGE
-                setCallStatus("ERREUR: Accès caméra refusé ou impossible.");
-            }
-        };
-        startWebcam();
+  return (
+    <div className="flex flex-col min-h-screen bg-gray-50">
+      
+      {/* Hero Section */}
+      <section className="bg-blue-600 text-white py-20 px-6 text-center">
+        <h1 className="text-4xl md:text-5xl font-bold mb-4">
+          Trouvez votre binôme d'études idéal
+        </h1>
+        <p className="text-xl md:text-2xl mb-8 max-w-2xl mx-auto">
+          Progressez ensemble, restez motivés et atteignez vos objectifs académiques grâce à BuddyEtude.
+        </p>
         
-        // Nettoyage
-        return () => {
-            if (localStream) {
-                localStream.getTracks().forEach(track => track.stop());
-            }
-        };
-    }, []); 
+        {user ? (
+          <Link 
+            to="/dashboard" 
+            className="bg-white text-blue-600 font-bold py-3 px-8 rounded-full shadow-lg hover:bg-gray-100 transition duration-300"
+          >
+            Accéder à mon Dashboard
+          </Link>
+        ) : (
+          <div className="space-x-4">
+            <Link 
+              to="/login" 
+              className="bg-white text-blue-600 font-bold py-3 px-8 rounded-full shadow-lg hover:bg-gray-100 transition duration-300"
+            >
+              C'est parti !
+            </Link>
+          </div>
+        )}
+      </section>
 
-    // 2. Signalisation (Reste inchangé pour la logique)
-    useEffect(() => {
-        if (!callId) return;
+      {/* Features Section */}
+      <section className="py-16 px-6 max-w-6xl mx-auto">
+        <h2 className="text-3xl font-bold text-center text-gray-800 mb-12">
+          Pourquoi utiliser BuddyEtude ?
+        </h2>
+        
+        <div className="grid md:grid-cols-3 gap-8">
+          <div className="bg-white p-6 rounded-xl shadow-md text-center">
+            <div className="text-4xl mb-4">🎯</div>
+            <h3 className="text-xl font-bold mb-2">Objectifs Communs</h3>
+            <p className="text-gray-600">
+              Trouvez quelqu'un qui prépare les mêmes examens ou apprend les mêmes matières que vous.
+            </p>
+          </div>
 
-        const unsubscribe = listenForSignals(callId, async (data) => {
-            if (data.status) setCallStatus(`Statut: ${data.status}`);
-            
-            if (data.offer && !pc.current.currentRemoteDescription) {
-                await pc.current.setRemoteDescription(new RTCSessionDescription(data.offer));
-                const answer = await pc.current.createAnswer();
-                await pc.current.setLocalDescription(answer);
-                await setCallAnswer(callId, { type: answer.type, sdp: answer.sdp });
-            }
-            if (data.answer && !pc.current.currentRemoteDescription) {
-                await pc.current.setRemoteDescription(new RTCSessionDescription(data.answer));
-            }
-        }, (candidateData) => {
-            if (pc.current.remoteDescription) {
-                pc.current.addIceCandidate(new RTCIceCandidate(candidateData));
-            }
-        });
-        return () => unsubscribe();
-    }, [callId]);
+          <div className="bg-white p-6 rounded-xl shadow-md text-center">
+            <div className="text-4xl mb-4">💬</div>
+            <h3 className="text-xl font-bold mb-2">Chat & Vidéo</h3>
+            <p className="text-gray-600">
+              Échangez facilement grâce à notre chat intégré et lancez des sessions de travail en visio.
+            </p>
+          </div>
 
-    // 3. Gestion ICE et Offre
-    useEffect(() => {
-        pc.current.onicecandidate = (event) => {
-            if (event.candidate) addCandidate(callId, event.candidate.toJSON());
-        };
-        pc.current.ontrack = (event) => {
-            if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
-        };
-
-        // Créer l'offre après un délai court
-        setTimeout(async () => {
-             // Vérification simple pour éviter de refaire une offre si on n'est pas l'initiant
-             // (Dans un code parfait, on vérifierait si on est callerId)
-             if (!pc.current.localDescription) {
-                 const offer = await pc.current.createOffer();
-                 await pc.current.setLocalDescription(offer);
-                 await setCallOffer(callId, { sdp: offer.sdp, type: offer.type });
-             }
-        }, 1000);
-    }, [callId]);
-
-    const handleHangup = async () => {
-        await endCall(callId); 
-        navigate('/dashboard'); 
-        window.location.reload(); 
-    };
-
-    return (
-        <div className="flex flex-col items-center min-h-screen bg-gray-900 text-white p-4">
-            <h2 className="text-xl mb-4 text-yellow-400">{callStatus}</h2>
-            
-            <div className="flex gap-4 w-full max-w-4xl">
-                {/* Vidéo Locale */}
-                <div className="flex-1 bg-black aspect-video border border-gray-600 relative">
-                    <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover transform scale-x-[-1]" />
-                    <span className="absolute bottom-2 left-2 bg-black/50 px-2 rounded">Moi</span>
-                </div>
-                {/* Vidéo Distante */}
-                <div className="flex-1 bg-black aspect-video border border-gray-600 relative">
-                    <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
-                    <span className="absolute bottom-2 left-2 bg-black/50 px-2 rounded">Partenaire</span>
-                </div>
-            </div>
-
-            <button onClick={handleHangup} className="mt-6 bg-red-600 px-8 py-3 rounded-full font-bold">
-                Raccrocher
-            </button>
+          <div className="bg-white p-6 rounded-xl shadow-md text-center">
+            <div className="text-4xl mb-4">🚀</div>
+            <h3 className="text-xl font-bold mb-2">Motivation Boostée</h3>
+            <p className="text-gray-600">
+              Ne révisez plus seul. L'entraide est la clé pour rester régulier et performant.
+            </p>
+          </div>
         </div>
-    );
+      </section>
+
+    </div>
+  );
 };
 
-export default VideoCall;
+export default Home;
