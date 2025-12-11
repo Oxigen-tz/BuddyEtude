@@ -50,6 +50,9 @@ export const deleteCall = async (callId) => {
     await deleteDoc(callDocRef);
 };
 
+// 🟢 EXPORT MANQUANT CORRIGÉ : Alias pour satisfaire l'importation dans VideoCall.jsx
+export const endCall = deleteCall;
+
 
 // =======================================================================
 // SIGNALISATION (WebRTC)
@@ -112,8 +115,5 @@ export const addCandidate = async (callId, candidate) => {
     await addDoc(candidatesRef, candidate);
 };
 
-// 🟢 EXPORT NOMMÉ MANQUANT : Créer un alias pour satisfaire l'importation de vos composants
-// Si vos composants importent 'sendSignal', ils utiliseront cette fonction qui appelle addCandidate.
-export const sendSignal = async (callId, signal) => {
-    await addCandidate(callId, signal);
-};
+// Alias sendSignal (si votre Chat.jsx l'importe)
+export const sendSignal = addCandidate;
