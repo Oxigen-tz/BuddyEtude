@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom"; 
 import { useAuth } from "../context/AuthContext";
+// Fonctions de Chat
 import { sendMessage, subscribeToMessages } from "../firebase/chat";
+// Fonctions de Groupe et Profil
 import { getGroupData, getProfileData } from "../firebase/services"; 
+// Fonctions d'Appel
 import { createCall } from "../firebase/videocall"; 
 
 
@@ -11,13 +14,19 @@ const Chat = () => {
     const navigate = useNavigate(); 
     const { user } = useAuth();
     
+    // 🛑 DÉBOGAGE CRITIQUE : UID du partenaire pour forcer l'activation du bouton.
+    // REMPLACEZ 'UID_DU_PARTENAIRE_DE_TEST' par l'UID exact de votre deuxième compte : w9f9vLOWfNLJEDYALZMVa7BXQ192
+    const DEBUG_PARTNER_ID = "w9f9vLOWfNLJEDYALZMVa7BXQ192";
+    
     const [messages, setMessages] = useState([]);
     const [newMessage, setNewMessage] = useState("");
     const [loading, setLoading] = useState(true);
     const messagesEndRef = useRef(null); 
     
-    const [otherUserId, setOtherUserId] = useState(null); 
-    const [otherUserName, setOtherUserName] = useState("Buddy"); 
+    // Nouveaux états pour l'appel
+    // 🛑 UTILISATION DE LA VALEUR DE DÉBOGAGE POUR IGNORER LA LOGIQUE QUI PLANTE
+    const [otherUserId, setOtherUserId] = useState(DEBUG_PARTNER_ID); 
+    const [otherUserName, setOtherUserName] = useState("NOXBdIq9gKbZ6v7ExaWn "); 
 
     // =======================================================================
     // 1. Abonnement aux messages ET identification du partenaire
@@ -25,40 +34,8 @@ const Chat = () => {
     useEffect(() => {
         if (!groupId || !user) return;
         
-        const findOtherUser = async () => {
-            try {
-                const groupData = await getGroupData(groupId);
-                
-                if (groupData && groupData.members && groupData.members.length > 1) {
-                    
-                    const partnerId = groupData.members.find(uid => uid !== user.uid);
-                    
-                    if (partnerId) {
-                        setOtherUserId(partnerId);
-                        
-                        const partnerProfile = await getProfileData(partnerId);
-                        if (partnerProfile && partnerProfile.name) {
-                            setOtherUserName(partnerProfile.name);
-                        } else {
-                            setOtherUserName(`Partenaire: ${partnerId}`); 
-                        }
-                    } else {
-                        setOtherUserId(null);
-                        setOtherUserName("Aucun Autre Membre dans le Groupe");
-                    }
-                } else {
-                    setOtherUserId(null);
-                    setOtherUserName("Groupe Invalide ou Solitaire");
-                }
-
-            } catch (error) {
-                console.error("Erreur critique d'accès aux données du groupe:", error);
-                setOtherUserId(null);
-                setOtherUserName("Erreur d'accès aux données");
-            }
-        };
-
-        findOtherUser();
+        // --- PARTIE RECHERCHE PARTENAIRE DÉSACTIVÉE ---
+        // Cette logique est ignorée car nous avons défini otherUserId ci-dessus.
         
         // --- PARTIE ABONNEMENT AU CHAT ---
         setLoading(true);
@@ -83,6 +60,7 @@ const Chat = () => {
     // =======================================================================
     const handleStartCall = async () => {
         if (!otherUserId) {
+            // Cette alerte ne devrait plus s'afficher grâce au débogage
             alert("Impossible de trouver l'autre utilisateur pour lancer l'appel.");
             return;
         }
@@ -95,9 +73,9 @@ const Chat = () => {
             navigate(`/call/${callId}`); 
             console.log("SUCCESS: Redirection lancée avec l'ID:", callId);
         } catch (error) {
-            // 🛑 L'erreur Firebase devrait être capturée ici
+            // 🛑 Ceci devrait maintenant afficher l'erreur de permission si elle existe
             console.error("ERREUR CRITIQUE Firebase:", error.message); 
-            alert("L'appel n'a pas pu être créé. Voir console F12 pour la cause (règles de sécurité ?).");
+            alert("L'appel n'a pas pu être créé. Voir console F12 pour la cause.");
         }
     };
     
@@ -131,7 +109,7 @@ const Chat = () => {
                 <button
                     onClick={handleStartCall}
                     className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition duration-200 disabled:opacity-50"
-                    disabled={!otherUserId} 
+                    disabled={!otherUserId} // Devrait toujours être false
                 >
                     📞 Démarrer l'Appel Vidéo
                 </button>

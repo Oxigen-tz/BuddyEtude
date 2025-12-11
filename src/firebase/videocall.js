@@ -1,15 +1,18 @@
 import { db } from "./config";
+// 🟢 Importation de 'getAuth' depuis firebase/auth pour le débogage d'auth
+import { getAuth } from "firebase/auth"; 
 import { 
     collection, 
     addDoc, 
     serverTimestamp,
     doc, 
     onSnapshot,
-    setDoc,
-    getDoc,
     deleteDoc,
     updateDoc
 } from "firebase/firestore";
+
+// Obtenir l'instance d'authentification pour la vérification
+const auth = getAuth(); 
 
 const CALLS_COLLECTION = "calls";
 const CANDIDATES_COLLECTION = "candidates";
@@ -22,6 +25,13 @@ const CANDIDATES_COLLECTION = "candidates";
  * Crée un nouveau document d'appel (ID unique) et initialise les participants.
  */
 export const createCall = async (callerId, receiverId) => {
+    // 🛑 DÉBOGAGE AUTHENTIFICATION : S'assurer que l'utilisateur est bien connecté et qu'il correspond.
+    if (!auth.currentUser || auth.currentUser.uid !== callerId) {
+        console.error("ERREUR AUTHENTIFICATION DANS createCall: L'utilisateur n'est pas connecté ou ne correspond pas à l'appelant.");
+        throw new Error("Authentification Firebase requise pour créer l'appel."); 
+    }
+    
+    // Le reste de l'exécution continue si l'authentification est OK
     const callDocRef = await addDoc(collection(db, CALLS_COLLECTION), {
         callerId,
         receiverId,
@@ -50,7 +60,7 @@ export const deleteCall = async (callId) => {
     await deleteDoc(callDocRef);
 };
 
-// 🟢 ALIAS MANQUANT pour les imports dans VideoCall.jsx
+// 🟢 ALIAS pour les imports dans VideoCall.jsx
 export const endCall = deleteCall;
 
 
@@ -115,5 +125,5 @@ export const addCandidate = async (callId, candidate) => {
     await addDoc(candidatesRef, candidate);
 };
 
-// 🟢 ALIAS MANQUANT pour les imports dans VideoCall.jsx
+// 🟢 ALIAS pour les imports dans VideoCall.jsx
 export const sendSignal = addCandidate;

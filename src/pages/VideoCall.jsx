@@ -1,248 +1,162 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import SimplePeer from 'simple-peer';
+import React, { useEffect, useState, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+
+// 🟢 CORRECTION CRITIQUE : Suppression de 'db' dans cette liste.
+// On n'importe QUE les fonctions que nous avons créées dans videocall.js
 import { 
     listenForSignals, 
-    sendSignal, 
-    updateCallStatus, 
+    setCallOffer, 
+    setCallAnswer, 
+    addCandidate,
     endCall 
 } from '../firebase/videocall'; 
 
-// Configuration des serveurs STUN/TURN
-const ICE_SERVERS = {
+// Serveurs STUN (Google)
+const servers = {
     iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
-        // NOTE: Ajoutez ici un serveur TURN pour une meilleure fiabilité dans des réseaux complexes (NAT restrictif)
-    ]
+        { urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
+    ],
+    iceCandidatePoolSize: 10,
 };
 
 const VideoCall = () => {
-    // callId: ID de la salle d'appel (Firestore Doc ID)
-    const { callId } = useParams(); 
-    // mode: Récupère 'receiver' si l'utilisateur rejoint l'appel via la notification
-    const [searchParams] = useSearchParams();
-    const mode = searchParams.get('mode'); 
-    
+    const { callId } = useParams();
     const navigate = useNavigate();
     const { user } = useAuth();
-
-    const [peer, setPeer] = useState(null);
+    
     const [localStream, setLocalStream] = useState(null);
-    const [remoteStream, setRemoteStream] = useState(null);
-    const [callStatus, setCallStatus] = useState('initializing'); // 'ringing', 'connecting', 'active', 'ended', 'media-error'
+    const [callStatus, setCallStatus] = useState("Initialisation...");
     
-    // Références pour les balises vidéo
-    const localVideoRef = useRef();
-    const remoteVideoRef = useRef();
-    
-    // Réf pour l'abonnement Firestore (pour le cleanup)
-    const unsubscribeRef = useRef(null); 
-    
-    // Rôle de l'utilisateur dans l'appel
-    const isInitiator = mode !== 'receiver';
+    const localVideoRef = useRef(null);
+    const remoteVideoRef = useRef(null);
+    const pc = useRef(new RTCPeerConnection(servers));
 
-    // =======================================================================
-    // 1. Initialisation de la caméra/micro et création du Peer
-    // =======================================================================
+    // 1. Initialisation de la Caméra
     useEffect(() => {
-        if (!user || !callId) return;
-
-        let currentPeer = null;
-
-        const setupMediaAndPeer = async () => {
+        const startWebcam = async () => {
             try {
-                // A. Obtenir les flux média
                 const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
                 setLocalStream(stream);
                 
-                // Mettre le flux local sur la balise vidéo
                 if (localVideoRef.current) {
                     localVideoRef.current.srcObject = stream;
                 }
 
-                // B. Initialiser le Peer
-                currentPeer = new SimplePeer({
-                    initiator: isInitiator, 
-                    trickle: true,
-                    stream: stream,
-                    config: ICE_SERVERS
+                stream.getTracks().forEach((track) => {
+                    pc.current.addTrack(track, stream);
                 });
 
-                setPeer(currentPeer);
-                setCallStatus(isInitiator ? 'ringing' : 'connecting');
-                
-                // C. Événements Simple-Peer
-                
-                // Lorsque le Peer génère un signal (Offer, Answer, Candidate), on l'envoie à Firestore
-                currentPeer.on('signal', (data) => {
-                    sendSignal(callId, { userId: user.uid, data: data }).catch(console.error);
-                });
-
-                // Lorsque le flux vidéo/audio distant arrive
-                currentPeer.on('stream', (stream) => {
-                    if (remoteVideoRef.current) {
-                        remoteVideoRef.current.srcObject = stream;
-                    }
-                    setRemoteStream(stream);
-                    setCallStatus('active');
-                    updateCallStatus(callId, 'active').catch(console.error);
-                });
-
-                currentPeer.on('connect', () => {
-                    console.log('WebRTC: Connexion établie!');
-                    setCallStatus('active');
-                });
-
-                currentPeer.on('close', () => handleEndCall(false, "Appel terminé par le partenaire."));
-                currentPeer.on('error', (err) => {
-                    console.error('Erreur Peer:', err);
-                    handleEndCall(true, "La connexion vidéo a échoué.");
-                });
-
-            } catch (err) {
-                console.error("Erreur d'accès aux médias:", err);
-                setCallStatus('media-error');
+                setCallStatus("Caméra active. En attente de connexion...");
+            } catch (error) {
+                console.error("Erreur caméra:", error);
+                setCallStatus("ERREUR: Impossible d'accéder à la caméra. Vérifiez les permissions.");
             }
         };
 
-        setupMediaAndPeer();
-            
-        // D. Fonction de Nettoyage (s'exécute au démontage du composant ou si l'ID change)
+        startWebcam();
+        
         return () => {
             if (localStream) {
                 localStream.getTracks().forEach(track => track.stop());
             }
-            if (currentPeer) currentPeer.destroy();
-            if (unsubscribeRef.current) unsubscribeRef.current();
-            
-            // Si c'est l'appelant qui raccroche, on nettoie le document Firestore
-            if (isInitiator) endCall(callId).catch(console.error);
         };
-    }, [user, callId, mode]); 
+    }, []); 
 
-
-    // =======================================================================
-    // 2. Écoute des signaux Firestore entrants
-    // =======================================================================
+    // 2. Gestion de la Signalisation (Écoute de Firebase)
     useEffect(() => {
-        // Déclencher l'écoute uniquement après l'initialisation du Peer
-        if (!user || !callId || !peer || unsubscribeRef.current) return;
+        if (!callId) return;
 
-        // Établir l'abonnement Firestore pour les signaux
-        unsubscribeRef.current = listenForSignals(callId, (callData) => {
-            if (!callData) {
-                // Le document a été supprimé par l'autre utilisateur
-                handleEndCall(false, "Le partenaire a raccroché ou l'appel a été annulé.");
-                return;
+        const unsubscribe = listenForSignals(callId, async (data) => {
+            if (data.status) setCallStatus(`Statut: ${data.status}`);
+            
+            if (data.offer && !pc.current.currentRemoteDescription) {
+                await pc.current.setRemoteDescription(new RTCSessionDescription(data.offer));
+                const answer = await pc.current.createAnswer();
+                await pc.current.setLocalDescription(answer);
+                await setCallAnswer(callId, { type: answer.type, sdp: answer.sdp });
             }
             
-            // Traiter les signaux entrants
-            callData.signals.forEach(signal => {
-                // S'assurer de ne traiter que le signal de l'autre utilisateur
-                if (signal.userId !== user.uid) {
-                    try {
-                        peer.signal(signal.data);
-                    } catch (e) {
-                        console.error("Erreur lors de la signalisation:", e);
-                    }
-                }
-            });
-            
-            // Mettre à jour le statut
-            setCallStatus(callData.status);
-
-            // Si le statut est mis à jour à 'ended' par l'autre partie
-            if (callData.status === 'ended') {
-                 handleEndCall(false, "Appel terminé par le partenaire.");
+            if (data.answer && !pc.current.currentRemoteDescription) {
+                await pc.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+            }
+        }, (candidateData) => {
+            if (pc.current.remoteDescription) {
+                pc.current.addIceCandidate(new RTCIceCandidate(candidateData));
             }
         });
+        
+        return () => unsubscribe();
+    }, [callId]);
 
-        // Nettoyage de l'abonnement à Firestore
-        return () => {
-            if (unsubscribeRef.current) {
-                unsubscribeRef.current();
-                unsubscribeRef.current = null;
+    // 3. Gestion des candidats ICE locaux et création de l'Offre
+    useEffect(() => {
+        pc.current.onicecandidate = (event) => {
+            if (event.candidate) {
+                addCandidate(callId, event.candidate.toJSON());
             }
         };
 
-    }, [peer, user, callId]); 
+        pc.current.ontrack = (event) => {
+            if (remoteVideoRef.current) {
+                remoteVideoRef.current.srcObject = event.streams[0];
+            }
+        };
 
+        const timer = setTimeout(async () => {
+             if (!pc.current.localDescription) {
+                 const offer = await pc.current.createOffer();
+                 await pc.current.setLocalDescription(offer);
+                 await setCallOffer(callId, { sdp: offer.sdp, type: offer.type });
+             }
+        }, 1000);
 
-    // =======================================================================
-    // 3. Fonction pour raccrocher
-    // =======================================================================
-    const handleEndCall = (isError = false, message = "Appel terminé.") => {
-        // Stopper les médias
-        if (localStream) localStream.getTracks().forEach(track => track.stop());
-        
-        // Détruire la connexion Peer
-        if (peer) peer.destroy();
-        
-        // Arrêter l'écoute Firestore
-        if (unsubscribeRef.current) unsubscribeRef.current();
-        
-        // Supprimer le document Firestore (si l'appelant le fait ou si erreur)
-        // Laisser le destinataire supprimer le document si c'est lui qui raccroche.
-        endCall(callId).catch(console.error); 
-        
-        alert(message);
-        navigate('/findbuddy');
+        return () => clearTimeout(timer);
+    }, [callId]);
+
+    // Fonction pour raccrocher
+    const handleHangup = async () => {
+        try {
+            await endCall(callId); 
+        } catch (e) {
+            console.error("Erreur fin d'appel", e);
+        }
+        navigate('/dashboard'); 
+        window.location.reload(); 
     };
-    
-    // =======================================================================
-    // 4. Rendu conditionnel et états
-    // =======================================================================
-    
-    if (callStatus === 'media-error') {
-        return <div className="p-6 text-red-600 text-center font-semibold">
-            Erreur: Impossible d'accéder à votre caméra et microphone. Veuillez vérifier les autorisations.
-        </div>;
-    }
-    if (!user) return <div className="p-6 text-center text-red-500">Authentification requise.</div>;
-    if (callStatus === 'initializing') return <div className="p-6 text-center">Initialisation de l'appel...</div>;
 
-
-    // Rendu de l'interface
     return (
-        <div className="p-6 max-w-6xl mx-auto text-center">
-            <h1 className="text-3xl font-bold mb-4 text-gray-800">
-                {callStatus === 'active' ? "Appel Vidéo Actif" : `Statut: ${callStatus.toUpperCase()}`}
-            </h1>
-            <p className="text-sm text-gray-500 mb-6">ID de l'appel: {callId}</p>
-
-            {/* Affichage des Vidéos */}
-            <div className="flex justify-center space-x-6">
-                
-                {/* Vidéo Locale (Moi) */}
-                <div className="w-1/3 relative bg-black border-4 border-blue-500 rounded-lg shadow-xl overflow-hidden">
-                    <video ref={localVideoRef} autoPlay muted playsInline className="w-full h-full object-cover"></video>
-                    <div className="absolute top-0 left-0 bg-blue-500 bg-opacity-70 text-white text-xs px-2 py-1">Moi</div>
+        <div className="flex flex-col items-center min-h-screen bg-gray-900 text-white p-4">
+            <h2 className="text-xl mb-4 text-yellow-400 font-semibold">{callStatus}</h2>
+            
+            <div className="flex flex-col md:flex-row gap-4 w-full max-w-5xl">
+                {/* Vidéo Distante */}
+                <div className="flex-1 bg-black aspect-video border-2 border-gray-700 rounded-lg relative overflow-hidden shadow-2xl">
+                    <video 
+                        ref={remoteVideoRef} 
+                        autoPlay 
+                        playsInline 
+                        className="w-full h-full object-cover" 
+                    />
+                    <div className="absolute bottom-2 left-2 bg-black/60 px-3 py-1 rounded text-sm">Partenaire</div>
                 </div>
 
-                {/* Vidéo Distante (Buddy) */}
-                <div className="w-2/3 relative border-4 border-gray-300 rounded-lg shadow-xl overflow-hidden">
-                    {callStatus === 'active' ? (
-                        <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover"></video>
-                    ) : (
-                        <div className="flex items-center justify-center h-full bg-gray-100 text-gray-500 p-10 min-h-64">
-                            {callStatus === 'ringing' && <p className="animate-pulse">En attente de la réponse du Buddy...</p>}
-                            {callStatus === 'connecting' && <p>Négociation de la connexion...</p>}
-                            {callStatus === 'ended' && <p>Appel terminé.</p>}
-                            
-                            {/* Correction de l'erreur JSX : la balise de fermeture est correcte */}
-                        </div>
-                    )}
-                    <div className="absolute top-0 left-0 bg-gray-800 bg-opacity-70 text-white text-xs px-2 py-1">Buddy</div>
+                {/* Vidéo Locale */}
+                <div className="flex-1 bg-black aspect-video border-2 border-gray-700 rounded-lg relative overflow-hidden shadow-2xl">
+                    <video 
+                        ref={localVideoRef} 
+                        autoPlay 
+                        playsInline 
+                        muted 
+                        className="w-full h-full object-cover transform scale-x-[-1]" 
+                    />
+                    <div className="absolute bottom-2 left-2 bg-black/60 px-3 py-1 rounded text-sm">Moi</div>
                 </div>
             </div>
 
-            {/* Bouton Raccrocher */}
             <button 
-                onClick={() => handleEndCall()}
-                className="mt-6 bg-buddy-accent hover:bg-red-700 text-white px-8 py-3 rounded-full shadow-lg font-bold transition disabled:opacity-50"
-                disabled={callStatus === 'ended'}
+                onClick={handleHangup} 
+                className="mt-8 bg-red-600 hover:bg-red-700 text-white px-8 py-3 rounded-full font-bold text-lg transition-transform hover:scale-105 shadow-lg"
             >
                 Raccrocher
             </button>
