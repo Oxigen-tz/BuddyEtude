@@ -1,13 +1,13 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 
-// Ajout d'une prop optionnelle 'onView'
 const GroupCard = ({ group }) => {
   const navigate = useNavigate();
   
-  // Utilise navigate par défaut pour aller vers la page du groupe
   const handleView = () => {
-    navigate(`/group/${group.id}`); 
+    // 🟢 CORRECTION : On pointe vers '/chat/' et non '/group/'
+    // car c'est la route définie dans App.jsx
+    navigate(`/chat/${group.id}`); 
   };
     
   return (

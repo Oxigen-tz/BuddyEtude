@@ -4,5 +4,14 @@
       "source": "/(.*)",
       "destination": "/index.html"
     }
+  ],
+  "redirects": [
+    {
+      
+      "source": "/buddy-etude-l4n6cw5uv-charles-projects-faa23af0.vercel.app/(.*)", 
+
+      "destination": "https://buddy-etude.vercel.app/$1",
+      "permanent": true
+    }
   ]
 }
