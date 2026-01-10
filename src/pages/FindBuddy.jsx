@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import UserCard from "../components/UserCard";
 import { findBuddy } from "../firebase/matching";
-import { startDirectChat } from "../firebase/services"; // <--- Import de la nouvelle fonction
+import { startDirectChat } from "../firebase/services";
 import { useAuth } from "../context/AuthContext";
 
 // --- CONFIGURATION DES DONNÉES ---
@@ -26,8 +26,9 @@ const FindBuddy = () => {
 
   // --- ÉTATS (STATE) ---
   const [selectedStudyPath, setSelectedStudyPath] = useState("");
-  const [selectedSubjects, setSelectedSubjects] = useState([]);
-  const [selectedSkillLevel, setSelectedSkillLevel] = useState("");
+  
+  // CHANGEMENT ICI : selectedSubjects est maintenant une liste d'objets { name: "Maths", level: "Intermédiaire" }
+  const [selectedSubjects, setSelectedSubjects] = useState([]); 
   
   const [selectedDays, setSelectedDays] = useState([]);
   const [selectedTimes, setSelectedTimes] = useState([]);
@@ -42,7 +43,6 @@ const FindBuddy = () => {
   const handleReset = () => {
     setSelectedStudyPath("");
     setSelectedSubjects([]);
-    setSelectedSkillLevel("");
     setSelectedDays([]);
     setSelectedTimes([]);
     setUsers([]);
@@ -51,7 +51,27 @@ const FindBuddy = () => {
 
   const handlePathChange = (e) => {
     setSelectedStudyPath(e.target.value);
-    setSelectedSubjects([]); 
+    setSelectedSubjects([]); // On remet à zéro si on change de filière
+  };
+
+  // Ajoute une matière avec un niveau par défaut
+  const addSubject = (subjectName) => {
+    // Vérifie si la matière est déjà là
+    if (!selectedSubjects.find(s => s.name === subjectName)) {
+      setSelectedSubjects([...selectedSubjects, { name: subjectName, level: "Intermédiaire" }]);
+    }
+  };
+
+  // Retire une matière
+  const removeSubject = (subjectName) => {
+    setSelectedSubjects(selectedSubjects.filter(s => s.name !== subjectName));
+  };
+
+  // Change le niveau d'une matière spécifique
+  const updateSubjectLevel = (subjectName, newLevel) => {
+    setSelectedSubjects(selectedSubjects.map(s => 
+      s.name === subjectName ? { ...s, level: newLevel } : s
+    ));
   };
 
   const toggleSelection = (item, list, setList) => {
@@ -65,8 +85,8 @@ const FindBuddy = () => {
   const handleSearch = async () => {
     if (!user) return navigate("/login");
 
-    if (!selectedStudyPath || selectedSubjects.length === 0 || !selectedSkillLevel) {
-      setError("Veuillez sélectionner au moins une filière, une matière et un niveau.");
+    if (!selectedStudyPath || selectedSubjects.length === 0) {
+      setError("Veuillez sélectionner au moins une matière.");
       return;
     }
 
@@ -75,22 +95,22 @@ const FindBuddy = () => {
     setUsers([]);
 
     try {
+      // On prépare les critères complexes
       const criteria = {
         studyPath: selectedStudyPath,
-        subjects: selectedSubjects,
-        level: selectedSkillLevel,
+        subjects: selectedSubjects, // Contient maintenant [{name, level}, ...]
         days: selectedDays,
         times: selectedTimes,
         currentUserId: user.uid
       };
 
-      console.log("Critères:", criteria);
+      console.log("Recherche détaillée :", criteria);
       const results = await findBuddy(criteria);
       setUsers(results);
 
     } catch (e) {
       console.error("Erreur recherche:", e);
-      setError("Erreur lors de la recherche. Vérifiez votre connexion.");
+      setError("Erreur lors de la recherche.");
     } finally {
       setLoading(false);
     }
@@ -99,10 +119,7 @@ const FindBuddy = () => {
   const handleContact = async (targetUser) => {
     if (callLoading) return;
     setCallLoading(true);
-    
     try {
-        console.log("Création du chat avec :", targetUser.name);
-        // Créer le groupe et rediriger vers le Chat
         const newGroupId = await startDirectChat(user.uid, targetUser.id, targetUser.name);
         navigate(`/chat/${newGroupId}`); 
     } catch (e) {
@@ -121,9 +138,8 @@ const FindBuddy = () => {
 
       <div className="bg-white p-8 rounded-2xl shadow-xl space-y-8">
         
-        {/* 1. Filière et Niveau */}
-        <div className="grid md:grid-cols-2 gap-6">
-          <div>
+        {/* 1. Filière */}
+        <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">🎓 Cursus / Filière</label>
             <select 
               value={selectedStudyPath} 
@@ -135,50 +151,75 @@ const FindBuddy = () => {
                 <option key={path} value={path}>{path}</option>
               ))}
             </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">⭐ Niveau recherché</label>
-            <select 
-              value={selectedSkillLevel} 
-              onChange={(e) => setSelectedSkillLevel(e.target.value)} 
-              className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">-- Choisir un niveau --</option>
-              {SKILL_LEVELS.map(level => (
-                <option key={level} value={level}>{level}</option>
-              ))}
-            </select>
-          </div>
         </div>
 
-        {/* 2. Matières */}
+        {/* 2. Sélection des Matières + Niveaux */}
         {selectedStudyPath && (
-          <div className="animate-fade-in">
-            <label className="block text-sm font-semibold text-gray-700 mb-3">📚 Matières (Sélection multiple)</label>
-            <div className="flex flex-wrap gap-2">
-              {STUDY_PATHS[selectedStudyPath].map((subject) => {
-                const isSelected = selectedSubjects.includes(subject);
-                return (
-                  <button
-                    key={subject}
-                    onClick={() => toggleSelection(subject, selectedSubjects, setSelectedSubjects)}
-                    className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 border
-                      ${isSelected 
-                        ? "bg-blue-600 text-white border-blue-600 shadow-md scale-105" 
-                        : "bg-white text-gray-600 border-gray-300 hover:bg-gray-100"}`}
-                  >
-                    {subject}
-                  </button>
-                );
-              })}
+          <div className="animate-fade-in grid md:grid-cols-2 gap-8 border-t border-b border-gray-100 py-6">
+            
+            {/* Colonne GAUCHE : Matières Disponibles */}
+            <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-3">1. Ajoutez des matières</label>
+                <div className="flex flex-wrap gap-2">
+                {STUDY_PATHS[selectedStudyPath].map((subject) => {
+                    const isSelected = selectedSubjects.some(s => s.name === subject);
+                    return (
+                    <button
+                        key={subject}
+                        onClick={() => !isSelected ? addSubject(subject) : removeSubject(subject)}
+                        className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all border
+                        ${isSelected 
+                            ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed" 
+                            : "bg-white text-buddy-primary border-blue-200 hover:bg-blue-50 hover:border-blue-400"}`}
+                        disabled={isSelected}
+                    >
+                        {isSelected ? "✓ " : "+ "} {subject}
+                    </button>
+                    );
+                })}
+                </div>
+            </div>
+
+            {/* Colonne DROITE : Configuration des Niveaux */}
+            <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                <label className="block text-sm font-semibold text-gray-700 mb-3">2. Définissez le niveau recherché</label>
+                
+                {selectedSubjects.length === 0 ? (
+                    <p className="text-sm text-gray-500 italic">Aucune matière sélectionnée.</p>
+                ) : (
+                    <div className="space-y-3">
+                        {selectedSubjects.map((item, index) => (
+                            <div key={index} className="flex items-center justify-between bg-white p-2 rounded-lg shadow-sm border border-gray-100">
+                                <span className="font-bold text-gray-800 ml-2">{item.name}</span>
+                                
+                                <div className="flex items-center gap-2">
+                                    <select
+                                        value={item.level}
+                                        onChange={(e) => updateSubjectLevel(item.name, e.target.value)}
+                                        className="text-sm border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 p-1 bg-gray-50"
+                                    >
+                                        {SKILL_LEVELS.map(lvl => (
+                                            <option key={lvl} value={lvl}>{lvl}</option>
+                                        ))}
+                                    </select>
+                                    
+                                    <button 
+                                        onClick={() => removeSubject(item.name)}
+                                        className="text-red-400 hover:text-red-600 p-1"
+                                        title="Retirer"
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
           </div>
         )}
 
-        <hr className="border-gray-100" />
-
-        {/* 3. Disponibilités */}
+        {/* 3. Disponibilités (Reste inchangé) */}
         <div className="grid md:grid-cols-2 gap-8">
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-3">📅 Jours disponibles</label>
