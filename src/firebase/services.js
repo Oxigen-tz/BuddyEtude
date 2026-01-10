@@ -6,6 +6,7 @@ import {
     query, 
     where, 
     setDoc, 
+    addDoc, // <--- AJOUTÉ ICI
     serverTimestamp,
     getDoc 
 } from "firebase/firestore";
@@ -25,7 +26,6 @@ export const syncUserProfile = async (user) => {
     const docSnap = await getDoc(userRef);
 
     if (!docSnap.exists()) {
-        // Crée le document utilisateur s'il n'existe pas (Premier Login)
         await setDoc(userRef, {
             name: user.displayName,
             email: user.email,
@@ -65,7 +65,6 @@ export const updateProfileData = async (userId, data) => {
 
 /**
  * Récupère les données d'un groupe spécifique par son ID.
- * ESSENTIEL pour trouver l'UID du partenaire dans Chat.jsx.
  */
 export const getGroupData = async (groupId) => {
     const docRef = doc(db, GROUPS_COLLECTION, groupId);
@@ -76,7 +75,6 @@ export const getGroupData = async (groupId) => {
     }
     return null;
 };
-
 
 /**
  * Récupère tous les groupes dont l'utilisateur est membre.
@@ -91,4 +89,27 @@ export const getGroups = async (userId) => {
         groups.push({ id: doc.id, ...doc.data() });
     });
     return groups;
+};
+
+/**
+ * Crée un groupe de discussion privé (Chat) entre deux utilisateurs.
+ * NOUVELLE FONCTION AJOUTÉE
+ */
+export const startDirectChat = async (currentUserId, targetUserId, targetUserName) => {
+    try {
+        // On crée un nouveau document dans la collection "groups"
+        const groupRef = await addDoc(collection(db, GROUPS_COLLECTION), {
+            name: `Chat avec ${targetUserName}`, // Nom par défaut
+            members: [currentUserId, targetUserId], // Les 2 participants
+            type: "private", // Type de groupe
+            createdAt: serverTimestamp(),
+            lastMessage: "Discussion commencée",
+            lastMessageTime: serverTimestamp()
+        });
+        
+        return groupRef.id; // On retourne l'ID du nouveau groupe pour la redirection
+    } catch (error) {
+        console.error("Erreur lors de la création du chat:", error);
+        throw error;
+    }
 };
