@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { db } from "../firebase/config";
 import { uploadChatFile } from "../firebase/services";
 import { 
-  collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, deleteDoc, getDocs 
+  collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc 
 } from "firebase/firestore";
 
 const GroupChat = () => {
@@ -18,7 +18,7 @@ const GroupChat = () => {
   const canvasRef = useRef(null);
   const ctxRef = useRef(null);
   
-  // Ref pour stocker le trait en cours avant envoi
+  // Ref pour stocker le trait en cours avant envoi (optimisation)
   const currentPathRef = useRef([]); 
 
   // --- États Chat & Messages ---
@@ -41,7 +41,7 @@ const GroupChat = () => {
   useEffect(() => {
     if (!groupId) return;
 
-    // Écoute du groupe
+    // Écoute du groupe (pour le nom et le statut d'appel)
     const unsubGroup = onSnapshot(doc(db, "groups", groupId), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
@@ -83,16 +83,18 @@ const GroupChat = () => {
       
       const unsubDraw = onSnapshot(qDrawings, (snapshot) => {
         snapshot.docChanges().forEach((change) => {
+          // Si un nouveau trait est ajouté
           if (change.type === "added") {
             const data = change.doc.data();
-            // Ne pas redessiner ce que je viens de dessiner moi-même (éviter doublons)
-            if (data.senderId !== user.uid) {
+            
+            // Si c'est un signal d'effacement
+            if (data.type === "clear") {
+               ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+            // Si c'est un trait et qu'il ne vient pas de moi (je l'ai déjà dessiné localement)
+            else if (data.type === "path" && data.senderId !== user.uid) {
               drawPathOnCanvas(data.path, data.color);
             }
-          }
-          // Si on reçoit un ordre d'effacement (type: clear)
-          if (change.type === "added" && change.doc.data().type === "clear") {
-             ctx.clearRect(0, 0, canvas.width, canvas.height);
           }
         });
       });
@@ -210,7 +212,9 @@ const GroupChat = () => {
 
   const handleClearCanvas = async () => {
     // 1. Effacer localement
-    ctxRef.current.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    if(ctxRef.current && canvasRef.current) {
+        ctxRef.current.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    }
     
     // 2. Envoyer signal aux autres
     try {
@@ -220,9 +224,6 @@ const GroupChat = () => {
             createdAt: serverTimestamp()
         });
     } catch (e) { console.error(e); }
-
-    // Optionnel : Supprimer les docs de la DB pour nettoyer (maintenance)
-    // Ici on envoie juste un signal "effacer" pour faire simple
   };
 
   const getCoordinates = (event) => {
@@ -299,6 +300,7 @@ const GroupChat = () => {
           </div>
         )}
 
+        {/* Menu Déroulant (Popup) */}
         {showMenu && (
           <div className="absolute bottom-20 left-4 bg-white border border-gray-200 shadow-xl rounded-xl w-48 overflow-hidden animate-fade-in z-20">
             <div className="px-4 py-3 hover:bg-gray-50 cursor-pointer flex items-center gap-3 transition" onClick={() => fileInputRef.current.click()}>
@@ -312,9 +314,12 @@ const GroupChat = () => {
 
         <form onSubmit={handleSendMessage} className="flex gap-2 items-center">
           <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" />
+          
           <button type="button" onClick={() => setShowMenu(!showMenu)} className={`w-10 h-10 rounded-full flex items-center justify-center text-2xl transition-all duration-200 ${showMenu ? "bg-gray-800 text-white rotate-45" : "bg-gray-100 text-gray-500 hover:bg-gray-200"}`}>+</button>
+          
           <input type="text" value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder="Votre message..." className="flex-1 p-3 border border-gray-300 rounded-full outline-none focus:ring-2 focus:ring-blue-500 transition" disabled={isSending} />
-          <button type=\"submit\" disabled={isSending || (!newMessage.trim() && !selectedFile)} className="p-3 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-50 transition shadow-md">
+          
+          <button type="submit" disabled={isSending || (!newMessage.trim() && !selectedFile)} className="p-3 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-50 transition shadow-md">
             <svg className="w-5 h-5 transform rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
           </button>
         </form>
