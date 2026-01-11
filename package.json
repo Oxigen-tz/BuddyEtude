@@ -11,6 +11,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@zegocloud/zego-uikit-prebuilt": "^2.17.2",
     "firebase": "^10.x.x",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
