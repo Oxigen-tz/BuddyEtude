@@ -6,30 +6,34 @@ import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Dashboard from './pages/Dashboard';
 import FindBuddy from './pages/FindBuddy';
-import Profile from './pages/Profile'; // <--- Import AJOUTÉ
-// Importez vos composants Chat/VideoCall ici si nécessaire (ex: GroupChat, VideoCall, CallNotifier)
-// import CallNotifier from './components/CallNotifier';
-// import GroupChat from './components/GroupChat';
-// import VideoCall from './components/VideoCall';
+import Profile from './pages/Profile';
+
+// --- IMPORTS DÉCOMMENTÉS (ACTIVÉS) ---
+import CallNotifier from './components/CallNotifier'; 
+import GroupChat from './components/GroupChat'; 
+import VideoCall from './components/VideoCall'; 
 
 function App() {
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 font-sans">
       <Header />
-      {/* <CallNotifier /> */}
+      
+      {/* Notification d'appel (Doit être actif pour recevoir les appels partout) */}
+      <CallNotifier /> 
+
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         
-        {/* Routes de l'application */}
+        {/* Routes Principales */}
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/find-buddy" element={<FindBuddy />} />
-        <Route path="/profile" element={<Profile />} /> {/* <--- Route AJOUTÉE */}
+        <Route path="/profile" element={<Profile />} />
         
-        {/* Routes Chat et Vidéo (décommentez si vous avez ces fichiers) */}
-        {/* <Route path="/chat/:groupId" element={<GroupChat />} /> */}
-        {/* <Route path="/call/:roomId" element={<VideoCall />} /> */}
+        {/* --- ROUTES CHAT ET VIDÉO (ACTIVÉES) --- */}
+        <Route path="/chat/:groupId" element={<GroupChat />} />
+        <Route path="/call/:roomId" element={<VideoCall />} />
       </Routes>
     </div>
   );
