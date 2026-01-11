@@ -11,159 +11,208 @@ const GroupChat = () => {
   const { groupId } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+  
+  // Refs
   const dummy = useRef();
   const fileInputRef = useRef();
+  const canvasRef = useRef(null);
+  const ctxRef = useRef(null);
 
+  // --- États Chat & Messages ---
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
   const [loading, setLoading] = useState(true);
-  
   const [groupName, setGroupName] = useState("Discussion");
+  
+  // --- États Gestion Fichiers ---
   const [selectedFile, setSelectedFile] = useState(null);
   const [isSending, setIsSending] = useState(false);
-  const [buddyStatus, setBuddyStatus] = useState("offline");
   
-  // 🟢 NOUVEAU : État pour savoir si un appel est en cours
+  // --- États Statuts ---
+  const [buddyStatus, setBuddyStatus] = useState("offline");
   const [isCallActive, setIsCallActive] = useState(false);
+
+  // --- NOUVEAUX ÉTATS (Menu + & Tableau Blanc) ---
+  const [showMenu, setShowMenu] = useState(false);
+  const [showWhiteboard, setShowWhiteboard] = useState(false);
+  const [isDrawing, setIsDrawing] = useState(false);
 
   // 1. Infos Groupe (Nom + Statut Appel + Statut Binôme)
   useEffect(() => {
     if (!groupId) return;
 
-    // On écoute le document du GROUPE en temps réel (pour voir le changement isCallActive direct)
+    // Écoute du groupe
     const unsubGroup = onSnapshot(doc(db, "groups", groupId), (docSnap) => {
-        if (docSnap.exists()) {
-            const data = docSnap.data();
-            setGroupName(data.name || "Groupe d'étude");
-            setIsCallActive(data.isCallActive === true); // 👈 On récupère l'état de l'appel
-
-            // --- Logique Buddy En Ligne ---
-            if (data.members && data.members.length > 0) {
-                const buddyId = data.members.find(id => id !== user.uid);
-                if (buddyId) {
-                    // Petite astuce : on ne crée l'écouteur du buddy qu'une fois pour éviter les boucles
-                    // Dans un vrai projet on séparerait ça, mais ici on laisse le useEffect gérer
-                }
-            }
-        }
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setGroupName(data.name || "Discussion");
+        setIsCallActive(data.isCallActive || false);
+      }
     });
 
-    // Marquer comme lu
-    localStorage.setItem(`lastRead_${groupId}`, Date.now());
-    window.dispatchEvent(new Event("storage"));
+    // Écoute des messages
+    const q = query(collection(db, "groups", groupId, "messages"), orderBy("createdAt"));
+    const unsubMsg = onSnapshot(q, (snapshot) => {
+      setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLoading(false);
+      dummy.current?.scrollIntoView({ behavior: "smooth" });
+    });
 
-    return () => unsubGroup();
-  }, [groupId, user]);
+    return () => {
+      unsubGroup();
+      unsubMsg();
+    };
+  }, [groupId]);
 
-  // 2. Écoute messages (Inchangé)
+  // 2. Setup Tableau Blanc (Canvas)
   useEffect(() => {
-    if (!groupId) return;
-    const q = query(collection(db, "groups", groupId, "messages"), orderBy("createdAt", "asc"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-        setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        setLoading(false);
-        setTimeout(() => dummy.current?.scrollIntoView({ behavior: "smooth" }), 100);
-        localStorage.setItem(`lastRead_${groupId}`, Date.now());
-    }, (error) => {
-        navigate("/dashboard");
-    });
-    return () => unsubscribe();
-  }, [groupId, navigate]);
+    if (showWhiteboard && canvasRef.current) {
+      const canvas = canvasRef.current;
+      // Ajuster à la taille du conteneur parent
+      canvas.width = canvas.parentElement.offsetWidth;
+      canvas.height = canvas.parentElement.offsetHeight;
+      
+      const ctx = canvas.getContext("2d");
+      ctx.lineCap = "round";
+      ctx.strokeStyle = "black";
+      ctx.lineWidth = 3;
+      ctxRef.current = ctx;
+    }
+  }, [showWhiteboard]);
 
-  // Gestion Envoi (Inchangé)
+  // --- Fonctions Chat ---
   const handleFileSelect = (e) => {
-      const file = e.target.files[0];
-      if (file && file.size <= 5*1024*1024) setSelectedFile(file);
-      e.target.value = null;
+    if (e.target.files[0]) {
+      setSelectedFile(e.target.files[0]);
+      setShowMenu(false); // Ferme le menu après sélection
+    }
   };
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
-    if (!newMessage.trim() && !selectedFile) return;
+    if ((!newMessage.trim() && !selectedFile) || isSending) return;
+
     setIsSending(true);
     try {
-        let fileURL = null, type = "text";
-        if (selectedFile) {
-            fileURL = await uploadChatFile(selectedFile, groupId);
-            type = selectedFile.type.startsWith("image/") ? "image" : "file";
-        }
-        let txt = newMessage.trim();
-        if(!txt && selectedFile) txt = selectedFile.name;
+      let fileURL = null;
+      let fileType = null;
 
-        await addDoc(collection(db, "groups", groupId, "messages"), {
-            text: txt, type, fileURL, fileName: selectedFile?.name || null,
-            senderId: user.uid, senderName: user.displayName, photoURL: user.photoURL, createdAt: serverTimestamp()
-        });
-        await updateDoc(doc(db, "groups", groupId), {
-            lastMessage: txt, lastMessageTime: serverTimestamp(), lastSenderId: user.uid
-        });
-        setNewMessage(""); setSelectedFile(null);
-    } catch (err) { console.error(err); } finally { setIsSending(false); }
+      // Upload fichier si présent
+      if (selectedFile) {
+        fileURL = await uploadChatFile(selectedFile, groupId);
+        fileType = selectedFile.type.startsWith("image/") ? "image" : "file";
+      }
+
+      await addDoc(collection(db, "groups", groupId, "messages"), {
+        text: newMessage,
+        senderId: user.uid,
+        senderName: user.displayName || "Anonyme",
+        createdAt: serverTimestamp(),
+        fileURL,
+        fileType,
+        fileName: selectedFile ? selectedFile.name : null
+      });
+
+      setNewMessage("");
+      setSelectedFile(null);
+    } catch (error) {
+      console.error("Erreur envoi:", error);
+    } finally {
+      setIsSending(false);
+    }
   };
 
+  // --- Fonctions Tableau Blanc ---
+  const startDrawing = ({ nativeEvent }) => {
+    const { offsetX, offsetY } = getCoordinates(nativeEvent);
+    ctxRef.current.beginPath();
+    ctxRef.current.moveTo(offsetX, offsetY);
+    setIsDrawing(true);
+  };
+
+  const draw = ({ nativeEvent }) => {
+    if (!isDrawing) return;
+    const { offsetX, offsetY } = getCoordinates(nativeEvent);
+    ctxRef.current.lineTo(offsetX, offsetY);
+    ctxRef.current.stroke();
+  };
+
+  const stopDrawing = () => {
+    ctxRef.current.closePath();
+    setIsDrawing(false);
+  };
+
+  const clearCanvas = () => {
+    ctxRef.current.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+  };
+
+  // Gestion tactile et souris unifiée
+  const getCoordinates = (event) => {
+    if (event.touches && event.touches.length > 0) {
+      const rect = canvasRef.current.getBoundingClientRect();
+      return {
+        offsetX: event.touches[0].clientX - rect.left,
+        offsetY: event.touches[0].clientY - rect.top
+      };
+    }
+    return { offsetX: event.offsetX, offsetY: event.offsetY };
+  };
+
+  // Rendu du contenu des messages (Texte / Image / Fichier)
   const renderMessageContent = (msg) => {
-      if (msg.type === "image") return <div className="mt-2"><img src={msg.fileURL} className="max-w-[200px] rounded-lg border cursor-pointer" onClick={() => window.open(msg.fileURL)} /></div>;
-      if (msg.type === "file") return <div className="mt-2"><a href={msg.fileURL} target="_blank" className="bg-gray-50 p-2 rounded text-blue-600 font-bold flex gap-2">📄 {msg.fileName}</a></div>;
-      return <p>{msg.text}</p>;
+    return (
+      <div className="flex flex-col gap-1">
+        {msg.fileURL && msg.fileType === "image" && (
+          <img src={msg.fileURL} alt="attachment" className="max-w-[200px] rounded-lg mb-1 border" />
+        )}
+        {msg.fileURL && msg.fileType === "file" && (
+          <a href={msg.fileURL} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-blue-100 underline text-sm mb-1 bg-black/20 p-2 rounded">
+            📄 {msg.fileName || "Fichier joint"}
+          </a>
+        )}
+        {msg.text && <p>{msg.text}</p>}
+      </div>
+    );
   };
-
-  if (loading) return <div className="p-10 text-center">Chargement...</div>;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-64px)] bg-gray-100">
+    <div className="flex flex-col h-[calc(100vh-64px)] bg-gray-50 relative">
       
-      {/* HEADER */}
-      <div className="bg-white p-4 shadow-sm flex justify-between items-center border-b px-6 z-10">
-        <div className="flex flex-col">
-            <h2 className="text-xl font-bold text-gray-800">💬 {groupName}</h2>
-            {/* Si un appel est en cours, on affiche un texte vert, sinon le statut du binôme */}
-            {isCallActive ? (
-                <span className="text-xs text-green-600 font-bold animate-pulse flex items-center gap-1">
-                    🔴 Appel en cours...
-                </span>
-            ) : (
-                <div className="flex items-center gap-1.5 ml-1 mt-0.5">
-                    <span className={`w-2.5 h-2.5 rounded-full ${buddyStatus === 'online' ? 'bg-green-500' : 'bg-gray-300'}`}></span>
-                    <span className="text-xs text-gray-500 font-medium">{buddyStatus === 'online' ? 'En ligne' : 'Hors ligne'}</span>
-                </div>
-            )}
+      {/* HEADER DU CHAT */}
+      <div className="p-4 bg-white shadow-sm border-b flex justify-between items-center z-10">
+        <div>
+          <h2 className="font-bold text-lg text-gray-800">{groupName}</h2>
+          <div className="flex items-center gap-2">
+            <span className={`w-2 h-2 rounded-full ${isCallActive ? "bg-red-500 animate-pulse" : "bg-green-500"}`}></span>
+            <span className="text-xs text-gray-500">
+              {isCallActive ? "Appel en cours..." : "Discussion active"}
+            </span>
+          </div>
         </div>
-
-        {/* BOUTON DYNAMIQUE */}
-        {isCallActive ? (
-            // BOUTON VERT CLIGNOTANT (REJOINDRE)
-            <button 
-                onClick={() => navigate(`/call/${groupId}`)}
-                className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow-lg animate-bounce-slow border-2 border-green-400"
-            >
-                <span className="animate-ping absolute inline-flex h-3 w-3 rounded-full bg-green-200 opacity-75 right-2 top-2"></span>
-                📞 Rejoindre l'appel
-            </button>
-        ) : (
-            // BOUTON VIOLET NORMAL (LANCER)
-            <button 
-                onClick={() => navigate(`/call/${groupId}`)}
-                className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow-md transition"
-            >
-                📹 Vidéo
-            </button>
-        )}
+        
+        {/* Bouton Vidéo */}
+        <button 
+          onClick={() => navigate(`/call/${groupId}`)}
+          className={`p-2 rounded-full transition ${isCallActive ? "bg-green-500 text-white animate-bounce" : "bg-blue-50 text-blue-600 hover:bg-blue-100"}`}
+        >
+          📹
+        </button>
       </div>
 
-      {/* MESSAGES (Inchangé) */}
+      {/* LISTE DES MESSAGES */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map((msg) => {
+        {loading ? <p className="text-center text-gray-400">Chargement...</p> : messages.map((msg) => {
           const isMe = msg.senderId === user.uid;
           return (
             <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
-              <div className={`flex max-w-[75%] ${isMe ? "flex-row-reverse" : "flex-row"} items-end gap-2`}>
-                <div className="w-8 h-8 rounded-full bg-gray-300 overflow-hidden flex-shrink-0">
-                   {msg.photoURL ? <img src={msg.photoURL} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center font-bold text-xs">{msg.senderName?.charAt(0)}</div>}
-                </div>
+              <div className={`flex flex-col max-w-[75%] ${isMe ? "items-end" : "items-start"}`}>
                 <div className={`px-4 py-2 rounded-2xl shadow-sm text-sm ${isMe ? "bg-blue-600 text-white rounded-br-none" : "bg-white text-gray-800 border rounded-bl-none"}`}>
                   {!isMe && <p className="text-xs text-gray-500 font-bold mb-1">{msg.senderName}</p>}
                   {renderMessageContent(msg)}
                 </div>
+                <span className="text-[10px] text-gray-400 mt-1">
+                  {msg.createdAt?.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                </span>
               </div>
             </div>
           );
@@ -171,14 +220,121 @@ const GroupChat = () => {
         <div ref={dummy}></div>
       </div>
 
-      {/* INPUT (Inchangé) */}
-      {selectedFile && <div className="bg-gray-200 px-4 py-2 flex justify-between items-center text-sm font-bold text-blue-600">📎 {selectedFile.name} <button onClick={() => setSelectedFile(null)}>✕</button></div>}
-      <form onSubmit={handleSendMessage} className="p-3 bg-white border-t flex gap-2 items-center shadow-lg">
-        <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" />
-        <button type="button" onClick={() => fileInputRef.current.click()} disabled={isSending} className="p-3 text-gray-500 hover:bg-gray-100 rounded-full">📎</button>
-        <input type="text" value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder="Message..." className="flex-1 p-3 border rounded-full outline-none focus:ring-1 focus:ring-blue-500" />
-        <button type="submit" disabled={!newMessage.trim() && !selectedFile} className="bg-blue-600 text-white p-3 rounded-full w-12 h-12 shadow hover:bg-blue-700">➤</button>
-      </form>
+      {/* ZONE DE SAISIE & MENU */}
+      <div className="p-3 bg-white border-t relative shadow-lg">
+        
+        {/* Prévisualisation fichier sélectionné */}
+        {selectedFile && (
+          <div className="absolute bottom-full left-0 w-full bg-gray-100 px-4 py-2 flex justify-between items-center text-sm font-bold text-blue-600 border-t">
+            <span>📎 {selectedFile.name}</span>
+            <button onClick={() => setSelectedFile(null)} className="text-red-500 hover:text-red-700">✕</button>
+          </div>
+        )}
+
+        {/* Menu Déroulant */}
+        {showMenu && (
+          <div className="absolute bottom-20 left-4 bg-white border border-gray-200 shadow-xl rounded-xl w-48 overflow-hidden animate-fade-in z-20">
+            <div 
+              className="px-4 py-3 hover:bg-gray-50 cursor-pointer flex items-center gap-3 transition"
+              onClick={() => fileInputRef.current.click()} // Déclenche l'input caché
+            >
+              <span>📂</span> <span className="text-sm font-medium text-gray-700">Importer fichier</span>
+            </div>
+            <div 
+              className="px-4 py-3 hover:bg-gray-50 cursor-pointer flex items-center gap-3 transition border-t"
+              onClick={() => { setShowWhiteboard(true); setShowMenu(false); }}
+            >
+              <span>✏️</span> <span className="text-sm font-medium text-gray-700">Tableau Blanc</span>
+            </div>
+          </div>
+        )}
+
+        <form onSubmit={handleSendMessage} className="flex gap-2 items-center">
+          {/* Input Fichier Caché */}
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleFileSelect} 
+            className="hidden" 
+          />
+          
+          {/* Bouton "+" */}
+          <button 
+            type="button" 
+            onClick={() => setShowMenu(!showMenu)} 
+            className={`w-10 h-10 rounded-full flex items-center justify-center text-2xl transition-all duration-200 ${showMenu ? "bg-gray-800 text-white rotate-45" : "bg-gray-100 text-gray-500 hover:bg-gray-200"}`}
+          >
+            +
+          </button>
+
+          <input 
+            type="text" 
+            value={newMessage} 
+            onChange={(e) => setNewMessage(e.target.value)} 
+            placeholder="Votre message..." 
+            className="flex-1 p-3 border border-gray-300 rounded-full outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+            disabled={isSending}
+          />
+          
+          <button 
+            type="submit" 
+            disabled={isSending || (!newMessage.trim() && !selectedFile)} 
+            className="p-3 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-md"
+          >
+            <svg className="w-5 h-5 transform rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+            </svg>
+          </button>
+        </form>
+      </div>
+
+      {/* --- MODAL TABLEAU BLANC --- */}
+      {showWhiteboard && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-5xl h-[85vh] rounded-2xl flex flex-col shadow-2xl overflow-hidden animate-scale-in">
+            {/* Header du Tableau */}
+            <div className="bg-gray-50 px-6 py-4 border-b flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">✏️</span>
+                <h3 className="font-bold text-gray-800 text-lg">Tableau Blanc Collaboratif</h3>
+              </div>
+              <div className="flex gap-3">
+                <button 
+                  onClick={clearCanvas}
+                  className="px-4 py-2 text-sm bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 font-medium transition"
+                >
+                  Effacer
+                </button>
+                <button 
+                  onClick={() => setShowWhiteboard(false)}
+                  className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 font-bold transition shadow-sm"
+                >
+                  Fermer
+                </button>
+              </div>
+            </div>
+            
+            {/* Zone de Dessin */}
+            <div className="flex-1 relative bg-white cursor-crosshair touch-none">
+              <canvas
+                ref={canvasRef}
+                onMouseDown={startDrawing}
+                onMouseUp={stopDrawing}
+                onMouseMove={draw}
+                onMouseLeave={stopDrawing}
+                onTouchStart={startDrawing}
+                onTouchEnd={stopDrawing}
+                onTouchMove={draw}
+                className="w-full h-full block"
+              />
+              <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-100/90 px-4 py-1 rounded-full text-xs text-gray-500 shadow-sm pointer-events-none border">
+                Dessinez librement • Sauvegarde non disponible pour l'instant
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
