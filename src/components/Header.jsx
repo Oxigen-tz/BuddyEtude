@@ -1,79 +1,123 @@
-import React from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
+import React, { useEffect, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase/config';
 
 const Header = () => {
   const { user, logout } = useAuth();
-  const navigate = useNavigate();
+  const location = useLocation();
+  const [unreadCount, setUnreadCount] = useState(0);
 
-  const handleLogout = async () => {
-    try {
-      await logout();
-      navigate("/login");
-    } catch (error) {
-      console.error("Erreur déconnexion:", error);
-    }
-  };
+  // ÉCOUTE DES NOTIFICATIONS
+  useEffect(() => {
+    if (!user) return;
+
+    // 1. On écoute tous les groupes où je suis membre
+    const q = query(
+      collection(db, "groups"), 
+      where("members", "array-contains", user.uid)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      let count = 0;
+      
+      snapshot.forEach(doc => {
+        const groupData = doc.data();
+        
+        // S'il y a un message récent...
+        if (groupData.lastMessageTime) {
+            // ...et que ce n'est pas moi qui l'ai envoyé
+            if (groupData.lastSenderId !== user.uid) {
+                // ...je vérifie quand j'ai consulté ce groupe pour la dernière fois
+                const lastRead = localStorage.getItem(`lastRead_${doc.id}`);
+                const messageTime = groupData.lastMessageTime.toMillis(); // Convertir timestamp Firebase
+                
+                // Si le message est plus récent que ma lecture = Non Lu !
+                if (!lastRead || messageTime > parseInt(lastRead)) {
+                    count++;
+                }
+            }
+        }
+      });
+      
+      setUnreadCount(count);
+    });
+
+    // Petit hack pour forcer la mise à jour quand on change de page (ex: quand on ouvre un chat)
+    const handleStorageChange = () => {
+        // Cela ne recalcule pas tout mais permet de trigger des effets si besoin
+        // Dans ce code simplifié, le onSnapshot fait déjà le travail principal
+    };
+    window.addEventListener("storage", handleStorageChange);
+
+    return () => {
+        unsubscribe();
+        window.removeEventListener("storage", handleStorageChange);
+    };
+  }, [user]);
+
 
   return (
-    <header className="bg-buddy-primary text-white shadow-md p-4 sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto flex justify-between items-center">
+    <nav className="bg-white shadow-md p-4 sticky top-0 z-50">
+      <div className="container mx-auto flex justify-between items-center">
         
         {/* LOGO */}
-        <Link to="/" className="text-2xl font-extrabold tracking-tight hover:opacity-90 transition flex items-center gap-2">
-          <span>🎓</span> BuddyEtude
+        <Link to="/" className="text-2xl font-bold text-blue-600 flex items-center gap-2">
+            📚 BuddyEtude
         </Link>
 
-        {/* NAVIGATION */}
-        <nav>
-          {user ? (
-            <div className="flex items-center space-x-4 md:space-x-6">
-              
-              <Link 
-                to="/find-buddy" 
-                className="hover:text-blue-200 font-medium transition hidden md:block"
-              >
-                Trouver un Buddy
-              </Link>
+        {/* MENU */}
+        {user ? (
+          <div className="flex items-center gap-6">
+            <Link to="/dashboard" className={`hover:text-blue-600 font-medium ${location.pathname === '/dashboard' ? 'text-blue-600' : 'text-gray-600'}`}>
+              Accueil
+            </Link>
+            
+            <Link to="/find-buddy" className={`hover:text-blue-600 font-medium ${location.pathname === '/find-buddy' ? 'text-blue-600' : 'text-gray-600'}`}>
+              Trouver un binôme
+            </Link>
 
-              <Link 
-                to="/dashboard" 
-                className="hover:text-blue-200 font-medium transition hidden md:block"
-              >
-                Dashboard
-              </Link>
+            {/* BOUTON CHAT AVEC NOTIFICATION */}
+            <Link to="/dashboard" className="relative group">
+                <span className="text-2xl group-hover:scale-110 transition block">💬</span>
+                {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full border-2 border-white animate-bounce">
+                        {unreadCount}
+                    </span>
+                )}
+            </Link>
 
-              {/* --- LE BOUTON PROFIL --- */}
-              <Link 
-                to="/profile" 
-                className="flex items-center gap-2 bg-blue-700 hover:bg-blue-600 px-4 py-2 rounded-full transition shadow-sm border border-blue-500 cursor-pointer"
-                title="Gérer mon profil"
-              >
-                <span className="text-sm">👋</span>
-                <span className="font-bold hidden sm:inline">
-                  Bonjour, {user.displayName ? user.displayName.split(" ")[0] : "Étudiant"}
-                </span>
-              </Link>
+            {/* AVATAR PROFIL */}
+            <Link to="/profile" className="flex items-center gap-2 hover:opacity-80 transition">
+              <div className="w-9 h-9 rounded-full bg-gray-200 overflow-hidden border border-gray-300">
+                {user.photoURL ? (
+                    <img src={user.photoURL} alt="Profil" className="w-full h-full object-cover" />
+                ) : (
+                    <div className="w-full h-full flex items-center justify-center font-bold text-gray-500">
+                        {user.displayName?.charAt(0) || "U"}
+                    </div>
+                )}
+              </div>
+            </Link>
 
-              {/* Bouton Déconnexion */}
-              <button 
-                onClick={handleLogout}
-                className="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded text-sm font-bold transition shadow-sm"
-              >
-                Déconnexion
-              </button>
-            </div>
-          ) : (
-            <div className="space-x-4">
-              <Link to="/login" className="hover:underline font-medium">Connexion</Link>
-              <Link to="/signup" className="bg-white text-buddy-primary px-4 py-2 rounded-full font-bold hover:bg-gray-100 transition shadow-sm">
-                Inscription
-              </Link>
-            </div>
-          )}
-        </nav>
+            <button 
+              onClick={logout} 
+              className="bg-red-50 text-red-500 px-4 py-2 rounded-lg text-sm font-bold hover:bg-red-100 transition"
+            >
+              Déconnexion
+            </button>
+          </div>
+        ) : (
+          <div className="space-x-4">
+            <Link to="/login" className="text-gray-600 hover:text-blue-600 font-medium">Connexion</Link>
+            <Link to="/signup" className="bg-blue-600 text-white px-5 py-2 rounded-full font-bold hover:bg-blue-700 transition shadow-lg hover:shadow-xl">
+              Inscription
+            </Link>
+          </div>
+        )}
       </div>
-    </header>
+    </nav>
   );
 };
 
