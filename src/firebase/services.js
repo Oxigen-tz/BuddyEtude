@@ -1,4 +1,4 @@
-import { db } from "./config";
+import { db, storage } from "./config"; // <--- Import de 'storage'
 import { 
     collection, 
     doc, 
@@ -6,21 +6,18 @@ import {
     query, 
     where, 
     setDoc, 
-    addDoc, // <--- AJOUTÉ ICI
+    addDoc, 
     serverTimestamp,
     getDoc 
 } from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage"; // <--- Nouveaux imports Storage
+import { updateProfile } from "firebase/auth";
 
 const USERS_COLLECTION = "users";
 const GROUPS_COLLECTION = "groups";
 
-// =======================================================================
-// SERVICES UTILISATEUR
-// =======================================================================
+// --- SERVICES UTILISATEUR ---
 
-/**
- * Crée ou met à jour le profil utilisateur dans Firestore après une connexion réussie.
- */
 export const syncUserProfile = async (user) => {
     const userRef = doc(db, USERS_COLLECTION, user.uid);
     const docSnap = await getDoc(userRef);
@@ -33,15 +30,11 @@ export const syncUserProfile = async (user) => {
             level: "Débutant",
             availability: "Flexible",
             skills: [],
-            wishlist: [],
             createdAt: serverTimestamp()
         }, { merge: true });
     }
 };
 
-/**
- * Récupère le profil complet de l'utilisateur.
- */
 export const getProfileData = async (userId) => {
     const docRef = doc(db, USERS_COLLECTION, userId);
     const docSnap = await getDoc(docRef);
@@ -51,38 +44,36 @@ export const getProfileData = async (userId) => {
     return null;
 };
 
-/**
- * Met à jour le profil utilisateur.
- */
 export const updateProfileData = async (userId, data) => {
     const userRef = doc(db, USERS_COLLECTION, userId);
     await setDoc(userRef, data, { merge: true });
 };
 
-// =======================================================================
-// SERVICES GROUPES ET MATCHING
-// =======================================================================
-
-/**
- * Récupère les données d'un groupe spécifique par son ID.
- */
-export const getGroupData = async (groupId) => {
-    const docRef = doc(db, GROUPS_COLLECTION, groupId);
-    const docSnap = await getDoc(docRef);
+// --- NOUVELLE FONCTION UPLOAD PHOTO ---
+export const uploadAvatar = async (file, user) => {
+    // 1. On crée une référence : "avatars/ID_UTILISATEUR"
+    const fileRef = ref(storage, `avatars/${user.uid}`);
     
-    if (docSnap.exists()) {
-        return { id: docSnap.id, ...docSnap.data() };
-    }
-    return null;
+    // 2. On envoie le fichier
+    await uploadBytes(fileRef, file);
+    
+    // 3. On récupère le lien public (URL)
+    const photoURL = await getDownloadURL(fileRef);
+    
+    // 4. On met à jour l'Authentification Firebase
+    await updateProfile(user, { photoURL });
+    
+    // 5. On met à jour la base de données Firestore
+    await updateProfileData(user.uid, { photoURL });
+    
+    return photoURL;
 };
 
-/**
- * Récupère tous les groupes dont l'utilisateur est membre.
- */
+// --- SERVICES GROUPES ---
+
 export const getGroups = async (userId) => {
     const groupsRef = collection(db, GROUPS_COLLECTION);
     const q = query(groupsRef, where("members", "array-contains", userId));
-
     const querySnapshot = await getDocs(q);
     const groups = [];
     querySnapshot.forEach((doc) => {
@@ -91,25 +82,14 @@ export const getGroups = async (userId) => {
     return groups;
 };
 
-/**
- * Crée un groupe de discussion privé (Chat) entre deux utilisateurs.
- * NOUVELLE FONCTION AJOUTÉE
- */
 export const startDirectChat = async (currentUserId, targetUserId, targetUserName) => {
-    try {
-        // On crée un nouveau document dans la collection "groups"
-        const groupRef = await addDoc(collection(db, GROUPS_COLLECTION), {
-            name: `Chat avec ${targetUserName}`, // Nom par défaut
-            members: [currentUserId, targetUserId], // Les 2 participants
-            type: "private", // Type de groupe
-            createdAt: serverTimestamp(),
-            lastMessage: "Discussion commencée",
-            lastMessageTime: serverTimestamp()
-        });
-        
-        return groupRef.id; // On retourne l'ID du nouveau groupe pour la redirection
-    } catch (error) {
-        console.error("Erreur lors de la création du chat:", error);
-        throw error;
-    }
+    const groupRef = await addDoc(collection(db, GROUPS_COLLECTION), {
+        name: `Chat avec ${targetUserName}`,
+        members: [currentUserId, targetUserId],
+        type: "private",
+        createdAt: serverTimestamp(),
+        lastMessage: "Discussion commencée",
+        lastMessageTime: serverTimestamp()
+    });
+    return groupRef.id;
 };
