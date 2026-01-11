@@ -1,4 +1,4 @@
-import { db, storage } from "./config"; // <--- Import de 'storage'
+import { db, storage } from "./config"; 
 import { 
     collection, 
     doc, 
@@ -10,13 +10,15 @@ import {
     serverTimestamp,
     getDoc 
 } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage"; // <--- Nouveaux imports Storage
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage"; 
 import { updateProfile } from "firebase/auth";
 
 const USERS_COLLECTION = "users";
 const GROUPS_COLLECTION = "groups";
 
-// --- SERVICES UTILISATEUR ---
+// =======================================================================
+// SERVICES UTILISATEUR
+// =======================================================================
 
 export const syncUserProfile = async (user) => {
     const userRef = doc(db, USERS_COLLECTION, user.uid);
@@ -49,27 +51,21 @@ export const updateProfileData = async (userId, data) => {
     await setDoc(userRef, data, { merge: true });
 };
 
-// --- NOUVELLE FONCTION UPLOAD PHOTO ---
+// Upload photo de profil
 export const uploadAvatar = async (file, user) => {
-    // 1. On crée une référence : "avatars/ID_UTILISATEUR"
     const fileRef = ref(storage, `avatars/${user.uid}`);
-    
-    // 2. On envoie le fichier
     await uploadBytes(fileRef, file);
-    
-    // 3. On récupère le lien public (URL)
     const photoURL = await getDownloadURL(fileRef);
     
-    // 4. On met à jour l'Authentification Firebase
     await updateProfile(user, { photoURL });
-    
-    // 5. On met à jour la base de données Firestore
     await updateProfileData(user.uid, { photoURL });
     
     return photoURL;
 };
 
-// --- SERVICES GROUPES ---
+// =======================================================================
+// SERVICES GROUPES
+// =======================================================================
 
 export const getGroups = async (userId) => {
     const groupsRef = collection(db, GROUPS_COLLECTION);
@@ -92,4 +88,19 @@ export const startDirectChat = async (currentUserId, targetUserId, targetUserNam
         lastMessageTime: serverTimestamp()
     });
     return groupRef.id;
+};
+
+// --- NOUVELLE FONCTION (UPLOAD FICHIER CHAT) ---
+export const uploadChatFile = async (file, groupId) => {
+    try {
+        // On crée un chemin unique : group_files/ID_DU_GROUPE/TIMESTAMP_NOM
+        const fileRef = ref(storage, `group_files/${groupId}/${Date.now()}_${file.name}`);
+        
+        await uploadBytes(fileRef, file);
+        const url = await getDownloadURL(fileRef);
+        return url;
+    } catch (error) {
+        console.error("Erreur upload chat:", error);
+        throw error;
+    }
 };
